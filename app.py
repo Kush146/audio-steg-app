@@ -2,41 +2,68 @@ import streamlit as st
 import streamlit.components.v1 as components
 from auth import create_users_table, register_user, login_user, get_user_credentials
 from steg_utils import hide_message, extract_message
+from gtts import gTTS
+import tempfile
+from pydub import AudioSegment
+import io
+
+def convert_audio_to_wav(file):
+    audio = AudioSegment.from_file(file)
+    wav_io = io.BytesIO()
+    audio.export(wav_io, format="wav")
+    wav_io.seek(0)
+    return wav_io
 
 st.set_page_config(page_title="Audio Steganography AI", page_icon="🎧", layout="centered")
 create_users_table()
 
-# Inject particles + typing HTML
 components.html(open("extra_ui.html", "r").read(), height=0)
 
-st.markdown("""
+# 🌗 Theme Toggle
+theme = st.toggle("🌙 Enable Dark Mode", value=True)
+
+if theme:
+    bg_color = "#0f172a"
+    text_color = "#cbd5e1"
+    title_color = "#38bdf8"
+    box_bg = "linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95))"
+    border_color = "rgba(56, 189, 248, 0.3)"
+else:
+    bg_color = "#f1f5f9"
+    text_color = "#1e293b"
+    title_color = "#0284c7"
+    box_bg = "linear-gradient(135deg, #e0f2fe, #f8fafc)"
+    border_color = "#bae6fd"
+
+st.markdown(f"""
     <style>
-    body {
-        background-color: #0f172a;
+    body {{
+        background-color: {bg_color};
         font-family: 'Segoe UI', sans-serif;
-    }
-    .title {
+    }}
+    .title {{
         font-size: 2.8em;
         font-weight: bold;
-        color: #38bdf8;
+        color: {title_color};
         text-align: center;
         margin-top: 2rem;
-    }
-    .subtitle {
+    }}
+    .subtitle {{
         font-size: 1.1em;
-        color: #cbd5e1;
+        color: {text_color};
         text-align: center;
         margin-bottom: 1rem;
-    }
-    .box {
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+    }}
+    .box {{
+        background: {box_bg};
         padding: 2rem;
         border-radius: 15px;
         box-shadow: 0 0 30px rgba(56, 189, 248, 0.25);
         margin-top: 2rem;
-        border: 2px solid rgba(56, 189, 248, 0.3);
+        border: 2px solid {border_color};
         backdrop-filter: blur(4px);
-    }
+        color: {text_color};
+    }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -92,12 +119,11 @@ def register_ui():
 
 def main_ui():
     st.markdown('<div class="title">🔏 Steganography Control Panel</div>', unsafe_allow_html=True)
-
     st.markdown(f"""
         <div class='box'>
             <div style='text-align:center'>
-                <div class='typewriter'><h2 style='color:#38bdf8;'>👋 Welcome back, {st.session_state.user_email}</h2></div>
-                <p style='color:#cbd5e1; font-size: 16px;'>
+                <div class='typewriter'><h2 style='color:{title_color};'>👋 Welcome back, {st.session_state.user_email}</h2></div>
+                <p style='color:{text_color}; font-size: 16px;'>
                     You're now in your secure AI dashboard.<br>
                     Start hiding or extracting voice messages from audio files.
                 </p>
@@ -111,30 +137,40 @@ def main_ui():
     choice = st.selectbox("Choose Mode", ["🎙️ Hide Secret Message", "🔍 Extract Hidden Message"])
 
     if choice == "🎙️ Hide Secret Message":
-        st.subheader("Upload Cover Audio")
-        audio = st.file_uploader("Choose a WAV or MP3 file", type=["wav", "mp3"])
-        st.subheader("Enter Secret Message")
-        message = st.text_area("What message should be hidden?")
-        if st.button("🔐 Generate Stego Audio"):
-            if audio and message:
-                stego = hide_message(audio, message, pin, key)
-                st.success("✅ Stego audio created.")
-                st.download_button("⬇️ Download", stego, file_name="stego_output.wav")
-            else:
-                st.warning("Please provide both audio and a message.")
+        uploaded = st.file_uploader("Choose a WAV or MP3 file", type=["wav", "mp3"])
+        if uploaded:
+            audio = convert_audio_to_wav(uploaded)
+
+            st.subheader("Enter Secret Message")
+            message = st.text_area("What message should be hidden?")
+
+            if message and st.button("🔊 Preview Message as Voice"):
+                tts = gTTS(text=message, lang='en')
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmpfile:
+                    tts.save(tmpfile.name)
+                    st.audio(tmpfile.name, format="audio/mp3")
+
+            if st.button("🔐 Generate Stego Audio"):
+                if message:
+                    stego = hide_message(audio, message, pin, key)
+                    st.success("✅ Stego audio created.")
+                    st.download_button("⬇️ Download", stego, file_name="stego_output.wav")
+                else:
+                    st.warning("Please enter a secret message.")
 
     if choice == "🔍 Extract Hidden Message":
-        st.subheader("Upload Stego Audio")
-        stego_audio = st.file_uploader("Upload audio with hidden message", type=["wav", "mp3"])
-        user_pin = st.text_input("Enter PIN")
-        user_key = st.text_input("Enter Key")
-        if st.button("🔓 Extract Message"):
-            if stego_audio and user_pin and user_key:
-                result = extract_message(stego_audio.read(), user_pin, user_key)
-                st.success("✅ Extracted Message:")
-                st.code(result)
-            else:
-                st.warning("Please provide valid inputs.")
+        uploaded_stego = st.file_uploader("Upload audio with hidden message", type=["wav", "mp3"])
+        if uploaded_stego:
+            stego_audio = convert_audio_to_wav(uploaded_stego)
+            user_pin = st.text_input("Enter PIN")
+            user_key = st.text_input("Enter Key")
+            if st.button("🔓 Extract Message"):
+                if user_pin and user_key:
+                    result = extract_message(stego_audio.read(), user_pin, user_key)
+                    st.success("✅ Extracted Message:")
+                    st.code(result)
+                else:
+                    st.warning("Please provide both PIN and key.")
 
     if st.button("🚪 Logout"):
         st.session_state.logged_in = False
